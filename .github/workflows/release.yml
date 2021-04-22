@@ -1,0 +1,86 @@
+name: My Own Release for V2
+# build option is from https://github.com/v2fly/v2ray-core/blob/master/.github/workflows/release.yml
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: release tag
+      ref:
+        description: ref if not tag or branch
+
+jobs:
+  cancel_actions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: t-actions/cancel-actions@master
+
+  param:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      tag: ${{ steps.param.outputs.tag }}
+      matrix: ${{ steps.platforms.outputs.matrix }}
+    steps:
+      - id: param
+        uses: t-actions/calc-release@master
+        with:
+          tag: ${{ github.event.inputs.tag }}
+      - name: Update Ref if needed
+        id: ref
+        run: |
+          set -x
+          ref="${{ github.event.inputs.ref }}"
+          echo "::set-output name=ref::${ref:-${{ steps.param.outputs.ref }}}"
+      - uses: actions/checkout@v2
+      - uses: t-actions/delete-tag@master
+        with:
+          tag: ${{ steps.param.outputs.tag }}
+          ignore_error: true
+      - id: platforms
+        uses: t-actions/go-platforms@master
+        with:
+          platforms: android/arm64 darwin/amd64 dragonfly/amd64 freebsd/386 freebsd/amd64 freebsd/arm freebsd/arm64 illumos/amd64 linux/386 linux/amd64 linux/arm linux/arm64 linux/mips linux/mips64 linux/mips64le linux/mipsle linux/ppc64 linux/ppc64le linux/riscv64 linux/s390x netbsd/386 netbsd/amd64 netbsd/arm netbsd/arm64 openbsd/386 openbsd/amd64 openbsd/arm openbsd/arm64 windows/386 windows/amd64 windows/arm
+
+  release:
+    needs: param
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.param.outputs.matrix) }}
+    env:
+      OUTPUT: build
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      GOARM: ${{ matrix.goarm }}
+      CGO_ENABLED: 0
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: v2fly/v2ray-core
+          ref: ${{ needs.param.outputs.ref }}
+      - uses: actions/setup-go@v2
+        with:
+          go-version: ^1.16.3
+      - name: Download Dependencies
+        run: go mod download
+      - name: Build
+        run: |
+          mkdir -p ${OUTPUT}
+          SUFFIX="${GOOS}-${GOARCH}${GOARM:+v${GOARM}}"
+          if [[ "${GOOS}" == "windows" ]]; then SUFFIX="${SUFFIX}.exe"; fi
+
+          go build -v -o ${OUTPUT}/v2ray-${SUFFIX} -trimpath -ldflags "-s -w -buildid=" ./main
+          go build -v -o ${OUTPUT}/v2ctl-${SUFFIX} -trimpath -ldflags "-s -w -buildid=" -tags confonly ./infra/control/main
+      - name: List all build result
+        run: |
+          ls -al ${{ env.OUTPUT }}
+        if: ${{ always() }}
+      - name: Upload all build result
+        uses: svenstaro/upload-release-action@2.2.0
+        with:
+          repo_token: ${{ github.token }}
+          file: ${{ env.OUTPUT }}/*
+          tag: ${{ needs.param.outputs.tag }}
+          file_glob: true
+          overwrite: true

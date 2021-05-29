@@ -67,11 +67,19 @@ jobs:
       - name: Build
         run: |
           mkdir -p ${OUTPUT}
+          EXTENSION=""
           SUFFIX="${GOOS}-${GOARCH}${GOARM:+v${GOARM}}"
-          if [[ "${GOOS}" == "windows" ]]; then SUFFIX="${SUFFIX}.exe"; fi
+          if [[ "${GOOS}" == "windows" ]]; then EXTENSION=".exe"; SUFFIX="${SUFFIX}.exe"; fi
 
-          go build -v -o ${OUTPUT}/v2ray-${SUFFIX} -trimpath -ldflags "-s -w -buildid=" ./main
-          go build -v -o ${OUTPUT}/v2ctl-${SUFFIX} -trimpath -ldflags "-s -w -buildid=" -tags confonly ./infra/control/main
+          go build -v -o ${OUTPUT}/v2ray${EXTENSION} -trimpath -ldflags "-s -w -buildid=" ./main
+          go build -v -o ${OUTPUT}/v2ctl${EXTENSION} -trimpath -ldflags "-s -w -buildid=" -tags confonly ./infra/control/main
+
+          cd ${OUTPUT}
+          XZ_OPT=-9e tar cJf v2ray-${SUFFIX}.tar.xz v2ray${EXTENSION} v2ctl${EXTENSION}
+          sha256sum v2ray-${SUFFIX}.tar.xz > v2ray-${SUFFIX}.tar.xz.sha256
+          mv v2ray${EXTENSION} v2ray-${SUFFIX}
+          mv v2ctl${EXTENSION} v2ctl-${SUFFIX}
+
       - name: List all build result
         run: |
           ls -al ${{ env.OUTPUT }}
